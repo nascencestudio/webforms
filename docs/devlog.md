@@ -5,6 +5,20 @@ in [tapestry-playground](https://github.com/nascencestudio/tapestry-playground/b
 
 ---
 
+## 2026-10-20: StudioCMS mail patch
+
+**Request:** patches for Tapestry known issues #39 and #40, shipped with the plugin for sites to apply.
+
+### Done
+- `patches/studiocms@0.6.1.patch` and `@0.7.0.patch` (identical; the code is the same in both versions): the
+  notifier logs a notification it can't send instead of failing the dashboard action; the SMTP settings
+  handler updates saved settings and creates them only the first time. In `files`; CI's package check
+  allows `patches/`. README: how to apply, and to use Tapestry's patch on Tapestry sites.
+- Tested in the playground (its own StudioCMS patch carries the hunks) on a scratch site: the webforms suite
+  with `E2E_MAIL_SINK=1` saves SMTP settings twice and creates a folder while SMTP points at a closed port.
+
+---
+
 ## 2026-10-20: First version (0.1.0)
 
 **Request:** a Drupal Webform-like form builder for StudioCMS sites with strong spam protection and no

@@ -68,3 +68,14 @@ test (e.g. a password reset). A checklist goes in the README.
 - Tests: unit tests for form definitions, value validation, the timing token and the proof of work
   (forged, reused, expired); browser tests for building a form, submitting it, each spam check
   rejecting what it should, the email (a test SMTP server) and the Submissions page; accessibility.
+
+## Findings while building (2026-10-20)
+
+- StudioCMS's mailer sends **quoted-printable** plain text; the test SMTP server decodes it before checking.
+- With mail on, StudioCMS emails admins about dashboard changes and answers **HTTP 400** ("Failed to send
+  notification") when that email fails, even though the change may already be stored (Tapestry known issue
+  #40, 0.6.1 and 0.7.0). A wrong SMTP setting therefore breaks every save in the dashboard, not only forms.
+- Saving SMTP settings a second time fails (StudioCMS inserts the row again: Tapestry known issue #39).
+- Both are fixed by a small StudioCMS patch shipped in `patches/` (mail only, for 0.6.1 and 0.7.0), at the
+  user's request. The same hunks are in Tapestry's StudioCMS patch, which Tapestry sites use instead (pnpm
+  takes one patch per package version).

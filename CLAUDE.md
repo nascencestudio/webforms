@@ -72,8 +72,10 @@ src/
   (`X-Forwarded-For`, documentation ranges).
 - The email is quoted-printable (StudioCMS's mailer): decode before matching text in tests.
 - With mail on, a failing notification email makes StudioCMS refuse dashboard saves (Tapestry known issue
-  #40); SMTP settings can be saved only once (#39). Email tests (`E2E_MAIL_SINK=1`) run on scratch or CI
-  sites only and turn mail back off.
+  #40); SMTP settings can be saved only once (#39). `patches/studiocms@<version>.patch` fixes both (mail
+  only; shipped for sites without Tapestry). Tapestry's patch contains the same hunks: keep them identical,
+  for every supported StudioCMS version (pnpm allows one patch per package version). Email tests
+  (`E2E_MAIL_SINK=1`) run on scratch or CI sites only and turn mail back off.
 - After rebuilding IP Guard or Tapestry, the playground needs `pnpm install` (sometimes twice, "linked package
   out of date") and a dev server restart.
 - Radios and checkboxes must stay ≥ 20px on rows ≥ 28px apart (axe `target-size`, WCAG 2.2).

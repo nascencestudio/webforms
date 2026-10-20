@@ -35,7 +35,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - name: Package contents (dist, licenses, README, LICENSE only)
+      - name: Package contents (dist, patches, licenses, README, LICENSE only)
         run: |
           pnpm pack --pack-destination "$RUNNER_TEMP"
-          tar -tzf "$RUNNER_TEMP"/*.tgz | grep -vE '^package/(dist/|licenses/|README.md$|LICENSE$|package.json$)' && exit 1 || true
+          tar -tzf "$RUNNER_TEMP"/*.tgz | grep -vE '^package/(dist/|patches/|licenses/|README.md$|LICENSE$|package.json$)' && exit 1 || true

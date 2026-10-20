@@ -78,13 +78,34 @@ all):
 2. In Dashboard → SMTP Configuration: host `smtp-relay.brevo.com`, port 587, not secure (STARTTLS is used),
    your Brevo SMTP login and key, and a sender address on the verified domain. Turn mail on in the site
    configuration.
-3. **Send a test right away** (e.g. a password reset, or a form submission). Two StudioCMS issues make this
-   important:
-   - with mail on, StudioCMS emails admins about dashboard changes, and when that email fails **the save
-     fails** (HTTP 400, "Failed to send notification"): a wrong setting stops editors saving pages. Turning
-     mail off restores saving.
-   - SMTP settings can be saved only once from the dashboard; to change them later, delete the
-     `SCMS_MAILER_CONFIG_1` row in the `StudioCMSDynamicConfigSettings` table first.
+3. **Send a test right away** (e.g. a password reset, or a form submission).
+
+### Apply the StudioCMS mail patch
+
+StudioCMS 0.6.1 and 0.7.0 have two mail bugs that this package's small patch fixes:
+
+- With mail on, StudioCMS emails admins about dashboard changes, and when that email can't be sent **the
+  save fails** ("Failed to send notification"): a wrong SMTP setting or a provider outage stops editors
+  saving pages. The fix logs the failed notification and lets the save through.
+- SMTP settings can be saved only once; saving them again fails. The fix updates the saved settings.
+
+**On a Tapestry site, use Tapestry's StudioCMS patch instead**: it already contains these fixes, and pnpm
+takes only one patch per package version. Otherwise copy the file for your StudioCMS version:
+
+```sh
+mkdir -p patches
+cp node_modules/@nascencestudio/webforms/patches/studiocms@0.6.1.patch patches/
+```
+
+```yaml
+# pnpm-workspace.yaml
+patchedDependencies:
+  studiocms@0.6.1: patches/studiocms@0.6.1.patch
+```
+
+Then `pnpm install`. When you upgrade StudioCMS, switch to the matching file (`studiocms@0.7.0.patch`).
+Without the patch: turning mail off restores saving, and to change SMTP settings, delete the
+`SCMS_MAILER_CONFIG_1` row in the `StudioCMSDynamicConfigSettings` table first.
 
 Add the form to your privacy policy: submissions are kept for the form's retention period (and, with IP
 Guard, visitors' addresses are checked as its README describes).

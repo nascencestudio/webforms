@@ -1,0 +1,65 @@
+---
+/**
+ * Dashboard → Webforms' inner sidebar (ADR 0001 §2): All forms, then each form. Plain links with
+ * StudioCMS's inner-sidebar classes, marked active here (every view shares one path). StudioCMS's
+ * double-sidebar script expects #back-to-outer and #show-page (mobile navigation).
+ */
+/// <reference types="studiocms/v/types" />
+import { Button } from 'studiocms:ui/components/button';
+import { Icon } from 'studiocms:ui/components/icon';
+import { ensureContactForm, listForms } from './store.js';
+
+const here = Astro.url.pathname;
+const current = Astro.url.searchParams.get('form') ?? '';
+await ensureContactForm();
+const forms = await listForms().catch(() => []);
+const links = [
+	{ id: '', label: 'All forms', icon: 'heroicons:squares-2x2', href: here },
+	...forms.map((f) => ({
+		id: f.id,
+		label: f.name,
+		icon: 'heroicons:clipboard-document-list',
+		href: `${here}?form=${f.id}`,
+	})),
+];
+---
+
+<div class="inner-sidebar-header">
+	<Button variant="solid" color="primary" size="md" id="back-to-outer" class="mobile-btn mid-size-btn">
+		<Icon name="heroicons:arrow-left" width={24} height={24} slot="start-content" />
+	</Button>
+	<p class="webforms-nav__title">Webforms</p>
+	<Button variant="solid" color="primary" size="md" id="show-page" class="mobile-btn">
+		<Icon name="heroicons:x-mark" width={24} height={24} slot="start-content" />
+	</Button>
+</div>
+<nav class="webforms-nav__links" aria-label="Webforms" data-webforms-nav>
+	{
+		links.map((link) => (
+			<a
+				class:list={['inner-sidebar-link', { active: link.id === current }]}
+				href={link.href}
+				aria-current={link.id === current ? 'page' : undefined}
+				data-webforms-nav-link={link.id || 'all'}
+			>
+				<Icon name={link.icon} class="sidebar-link-icon" width={24} height={24} />
+				<span>{link.label}</span>
+			</a>
+		))
+	}
+</nav>
+
+<style>
+	.webforms-nav__title {
+		flex: 1;
+		margin: 0;
+		font-weight: 600;
+		font-size: 1.125rem;
+	}
+	.webforms-nav__links {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		width: 100%;
+	}
+</style>

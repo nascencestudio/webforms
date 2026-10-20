@@ -1,0 +1,444 @@
+---
+/**
+ * Dashboard → Webforms (ADR 0001 §2, §6). Admins build forms; editors view submissions. Views:
+ * - all forms (counts, a form to add one);
+ * - a form (`?form=<id>`): Fields (the builder), Settings (recipients, messages, retention; delete),
+ *   Submissions (list, filter, mark, delete, export), and one submission (`&submission=<id>`).
+ * Server-rendered with plain forms posting to /_webforms/admin (redirects back with `saved` or
+ * `error=<code>`). Row buttons belong to a hidden per-row form (`form="…"`): forms can't nest.
+ */
+/// <reference types="studiocms/v/types" />
+import { type BuilderError, ERRORS, FIELD_LABELS } from '../builder.js';
+import { FIELD_TYPES, type Field, LIMITS } from '../forms.js';
+import { mailEnabled } from './mail.js';
+import { ensureContactForm, listForms, listSubmissions, loadForm, loadSubmission, submissionCounts } from './store.js';
+import { getWebformsViewer } from './viewer.js';
+
+const ROUTE = '/_webforms/admin';
+const here = Astro.url.pathname;
+const viewer = await getWebformsViewer(Astro);
+const canEdit = viewer.isAdmin;
+await ensureContactForm();
+const form = await loadForm(Astro.url.searchParams.get('form'));
+const TABS = ['fields', 'settings', 'submissions'] as const;
+type Tab = (typeof TABS)[number];
+const requestedTab = Astro.url.searchParams.get('tab') as Tab;
+const tab: Tab = TABS.includes(requestedTab) ? requestedTab : canEdit ? 'fields' : 'submissions';
+const formUrl = (id: string, t?: Tab, extra = '') => `${here}?form=${id}${t ? `&tab=${t}` : ''}${extra}`;
+const back = form
+	? formUrl(
+			form.id,
+			tab,
+			tab === 'submissions' && Astro.url.searchParams.get('show') ? `&show=${Astro.url.searchParams.get('show')}` : '',
+		)
+	: here;
+const errorCode = Astro.url.searchParams.get('error');
+const error = errorCode && errorCode in ERRORS ? ERRORS[errorCode as BuilderError] : null;
+const saved = Astro.url.searchParams.has('saved');
+const missing = Astro.url.searchParams.has('form') && !form;
+
+const forms = form ? [] : await listForms();
+const counts = await submissionCounts();
+const mailOn = await mailEnabled();
+const show =
+	Astro.url.searchParams.get('show') === 'spam' ? 'spam' : Astro.url.searchParams.get('show') === 'all' ? 'all' : 'ok';
+const submissions = form && tab === 'submissions' ? await listSubmissions(form.id) : [];
+const shown = submissions.filter((s) =>
+	show === 'all' ? true : show === 'spam' ? s.spam.length > 0 : s.spam.length === 0,
+);
+const opened = form ? await loadSubmission(Astro.url.searchParams.get('submission')) : null;
+const submission = opened && opened.formId === form?.id ? opened : null;
+const when = (iso: string) =>
+	`${new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`;
+const MAIL = {
+	sent: 'Emailed',
+	failed: 'Email failed',
+	off: 'Email is off',
+	'no-recipients': 'No recipients',
+	skipped: 'Not emailed',
+} as const;
+const SPAM: Record<string, string> = {
+	honeypot: 'filled the hidden field',
+	'too-fast': 'sent too fast',
+	'bad-token': 'no valid form token',
+	'no-proof': 'no proof of work (no JavaScript?)',
+	'proof-invalid': 'invalid proof of work',
+	'proof-wrong': 'wrong proof of work',
+	'proof-expired': 'expired proof of work',
+	'proof-reused': 'reused proof of work',
+	links: 'too many links',
+	marked: 'marked as spam',
+};
+const valueText = (field: Field, value: string | string[] | undefined) =>
+	Array.isArray(value) ? value.join(', ') : field.type === 'checkbox' ? (value ? 'Yes' : 'No') : (value ?? '');
+const summary = (values: Record<string, string | string[]>) =>
+	(form?.fields ?? [])
+		.filter((f) => f.type !== 'markup' && values[f.id])
+		.slice(0, 2)
+		.map((f) => valueText(f, values[f.id]))
+		.join(' · ')
+		.slice(0, 120);
+const rowForm = (id: string) => `wf-row-${id.replaceAll(':', '-')}`;
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+---
+
+<div class="webforms" data-webforms data-view={form ? `form-${tab}` : 'list'}>
+	{saved && <p class="webforms__notice" role="status" data-webforms-saved>Saved.</p>}
+	{error && <p class="webforms__notice webforms__notice--error" role="alert" data-webforms-error={errorCode}>{error}</p>}
+	{missing && <p class="webforms__notice webforms__notice--error" role="alert">That form no longer exists.</p>}
+	{!mailOn && (
+		<p class="webforms__notice" role="note" data-webforms-mail-off>
+			Email isn't set up, so submissions are kept here but not emailed. Set it up in Dashboard → SMTP Configuration.
+		</p>
+	)}
+	{!canEdit && <p class="webforms__notice" role="note" data-webforms-readonly>Only admins can change forms. You can read and export submissions.</p>}
+
+	{!form && (
+		<section class="webforms__group" aria-labelledby="wf-all">
+			<h2 class="webforms__title" id="wf-all">Forms</h2>
+			<p class="webforms__muted">
+				Show a form with the Webform block in a page, template, header or footer, or with
+				<code>&lt;Webform form="…" /&gt;</code> in a layout. Spam is stopped without puzzles or third parties.
+			</p>
+			{forms.length === 0 ? (
+				<p class="webforms__muted">No forms yet.</p>
+			) : (
+				<ul class="webforms__cards" data-webforms-list>
+					{forms.map((f) => {
+						const c = counts.get(f.id) ?? { all: 0, spam: 0 };
+						return (
+							<li>
+								<a class="webforms__card" href={formUrl(f.id)} data-webforms-card={f.id}>
+									<span class="webforms__card-name">{f.name}</span>
+									<span class="webforms__muted">
+										{f.fields.length} field{f.fields.length === 1 ? '' : 's'} · {c.all - c.spam} submission{c.all - c.spam === 1 ? '' : 's'}
+										{c.spam ? ` · ${c.spam} spam` : ''}
+									</span>
+									<span class="webforms__muted">{f.settings.recipients.length ? `Emails ${f.settings.recipients.join(', ')}` : 'No recipients yet'}</span>
+								</a>
+							</li>
+						);
+					})}
+				</ul>
+			)}
+			{canEdit && (
+				<form method="post" action={ROUTE} class="webforms__stack" data-webforms-create>
+					<input type="hidden" name="action" value="create" />
+					<input type="hidden" name="return" value={here} />
+					<label class="webforms__field webforms__field--narrow">
+						<span>New form</span>
+						<input class="webforms__input" name="name" required maxlength={LIMITS.name} placeholder="e.g. Quote request" />
+					</label>
+					<div><button type="submit" class="webforms__button webforms__button--primary">Add form</button></div>
+				</form>
+			)}
+		</section>
+	)}
+
+	{form && (
+		<>
+			<div class="webforms__head">
+				<h2 class="webforms__title webforms__title--big" data-webforms-name>{form.name}</h2>
+				<code class="webforms__muted">{form.id}</code>
+			</div>
+			<nav class="webforms__tabs" aria-label="Form">
+				{TABS.filter((t) => canEdit || t === 'submissions').map((t) => (
+					<a class:list={['webforms__tab', { active: t === tab }]} href={formUrl(form.id, t)} aria-current={t === tab ? 'page' : undefined} data-webforms-tab={t}>
+						{t === 'fields' ? 'Fields' : t === 'settings' ? 'Settings' : 'Submissions'}
+					</a>
+				))}
+			</nav>
+
+			{tab === 'fields' && canEdit && (
+				<section class="webforms__group" aria-label="Fields">
+					{form.fields.length === 0 && <p class="webforms__muted">No fields yet. Add the first one below.</p>}
+					<ol class="webforms__fields" data-webforms-fields>
+						{form.fields.map((field, i) => (
+							<li class="webforms__fieldrow" data-webforms-field={field.id}>
+								<div class="webforms__fieldhead">
+									<span class="webforms__fieldname">{field.type === 'markup' ? field.help.slice(0, 60) : field.label}</span>
+									<span class="webforms__badge">{FIELD_LABELS[field.type]}</span>
+									{field.required && <span class="webforms__badge">Required</span>}
+									<span class="webforms__spacer" />
+									<button type="submit" form={rowForm(field.id)} name="action" value="move-up" class="webforms__button" disabled={i === 0} aria-label={`Move ${field.label || 'text block'} up`} data-webforms-op="move-up">↑</button>
+									<button type="submit" form={rowForm(field.id)} name="action" value="move-down" class="webforms__button" disabled={i === form.fields.length - 1} aria-label={`Move ${field.label || 'text block'} down`} data-webforms-op="move-down">↓</button>
+									<button type="submit" form={rowForm(field.id)} name="action" value="remove-field" class="webforms__button webforms__button--danger" data-webforms-op="remove">Remove</button>
+								</div>
+								<details class="webforms__edit">
+									<summary>Edit</summary>
+									<form method="post" action={ROUTE} class="webforms__stack" data-webforms-edit={field.id}>
+										<input type="hidden" name="action" value="edit-field" />
+										<input type="hidden" name="form" value={form.id} />
+										<input type="hidden" name="field" value={field.id} />
+										<input type="hidden" name="type" value={field.type} />
+										<input type="hidden" name="return" value={back} />
+										{field.type !== 'markup' && (
+											<label class="webforms__field">
+												<span>Label</span>
+												<input class="webforms__input" name="label" required maxlength={LIMITS.label} value={field.label} />
+											</label>
+										)}
+										<label class="webforms__field">
+											<span>{field.type === 'markup' ? 'Text' : 'Help (optional)'}</span>
+											{field.type === 'markup' ? (
+												<textarea class="webforms__input" name="help" rows="4" maxlength={LIMITS.markup}>{field.help}</textarea>
+											) : (
+												<input class="webforms__input" name="help" maxlength={LIMITS.help} value={field.help} />
+											)}
+										</label>
+										{field.options && (
+											<label class="webforms__field">
+												<span>Options (one per line)</span>
+												<textarea class="webforms__input" name="options" rows="4">{field.options.join('\n')}</textarea>
+											</label>
+										)}
+										{field.maxLength !== undefined && (
+											<label class="webforms__field webforms__field--narrow">
+												<span>Longest answer (characters)</span>
+												<input class="webforms__input" type="number" name="maxLength" min="1" max={field.type === 'text' ? LIMITS.textMax : LIMITS.textareaMax} value={field.maxLength} />
+											</label>
+										)}
+										{field.type !== 'markup' && (
+											<label class="webforms__check"><input type="checkbox" name="required" checked={field.required} /><span>Required</span></label>
+										)}
+										<div><button type="submit" class="webforms__button webforms__button--primary">Save field</button></div>
+									</form>
+								</details>
+							</li>
+						))}
+					</ol>
+					{form.fields.map((field) => (
+						<form method="post" action={ROUTE} id={rowForm(field.id)} hidden>
+							<input type="hidden" name="form" value={form.id} />
+							<input type="hidden" name="field" value={field.id} />
+							<input type="hidden" name="return" value={back} />
+						</form>
+					))}
+
+					<form method="post" action={ROUTE} class="webforms__stack webforms__add" data-webforms-add-field>
+						<h3 class="webforms__subtitle">Add a field</h3>
+						<input type="hidden" name="action" value="add-field" />
+						<input type="hidden" name="form" value={form.id} />
+						<input type="hidden" name="return" value={back} />
+						<div class="webforms__row">
+							<label class="webforms__field">
+								<span>Type</span>
+								<select class="webforms__input" name="type" data-webforms-type>
+									{FIELD_TYPES.map((t) => <option value={t}>{FIELD_LABELS[t]}</option>)}
+								</select>
+							</label>
+							<label class="webforms__field webforms__field--wide" data-for-types="text email phone textarea select radio checkboxes checkbox">
+								<span>Label</span>
+								<input class="webforms__input" name="label" maxlength={LIMITS.label} />
+							</label>
+						</div>
+						<label class="webforms__field">
+							<span>Help, or the text of a text block</span>
+							<textarea class="webforms__input" name="help" rows="2" maxlength={LIMITS.markup} />
+						</label>
+						<label class="webforms__field" data-for-types="select radio checkboxes">
+							<span>Options, one per line (dropdown, radio buttons, checkboxes)</span>
+							<textarea class="webforms__input" name="options" rows="3" />
+						</label>
+						<div class="webforms__row">
+							<label class="webforms__field webforms__field--narrow" data-for-types="text textarea">
+								<span>Longest answer (short and long text)</span>
+								<input class="webforms__input" type="number" name="maxLength" min="1" max={LIMITS.textareaMax} />
+							</label>
+							<label class="webforms__check" data-for-types="text email phone textarea select radio checkboxes checkbox"><input type="checkbox" name="required" /><span>Required</span></label>
+						</div>
+						<div><button type="submit" class="webforms__button webforms__button--primary">Add field</button></div>
+					</form>
+				</section>
+			)}
+
+			{tab === 'settings' && canEdit && (
+				<section class="webforms__group" aria-label="Settings">
+					<form method="post" action={ROUTE} class="webforms__stack" data-webforms-rename>
+						<input type="hidden" name="action" value="rename" />
+						<input type="hidden" name="form" value={form.id} />
+						<input type="hidden" name="return" value={back} />
+						<label class="webforms__field webforms__field--narrow">
+							<span>Form name</span>
+							<input class="webforms__input" name="name" required maxlength={LIMITS.name} value={form.name} />
+						</label>
+						<div><button type="submit" class="webforms__button">Rename</button></div>
+					</form>
+					<form method="post" action={ROUTE} class="webforms__stack" data-webforms-settings>
+						<input type="hidden" name="action" value="settings" />
+						<input type="hidden" name="form" value={form.id} />
+						<input type="hidden" name="return" value={back} />
+						<label class="webforms__field">
+							<span>Email submissions to (one address per line, up to {LIMITS.recipients})</span>
+							<textarea class="webforms__input" name="recipients" rows="3">{form.settings.recipients.join('\n')}</textarea>
+						</label>
+						<label class="webforms__field">
+							<span>Email subject ({'{form}'} is the form's name)</span>
+							<input class="webforms__input" name="subject" maxlength={LIMITS.subject} value={form.settings.subject} />
+						</label>
+						<label class="webforms__field">
+							<span>Thank-you message</span>
+							<input class="webforms__input" name="thankYou" maxlength={LIMITS.thankYou} value={form.settings.thankYou} />
+						</label>
+						<label class="webforms__field webforms__field--narrow">
+							<span>Or go to this page after sending (optional, e.g. /thanks)</span>
+							<input class="webforms__input" name="redirect" maxlength="200" value={form.settings.redirect} />
+						</label>
+						<label class="webforms__check"><input type="checkbox" name="keep" checked={form.settings.keep} /><span>Keep submissions here (also when email fails)</span></label>
+						<label class="webforms__field webforms__field--narrow">
+							<span>Delete them after (days)</span>
+							<input class="webforms__input" type="number" name="retentionDays" min="1" max={LIMITS.retentionDays} value={form.settings.retentionDays} />
+						</label>
+						<div><button type="submit" class="webforms__button webforms__button--primary">Save settings</button></div>
+					</form>
+					<form method="post" action={ROUTE} class="webforms__stack webforms__danger" data-webforms-delete>
+						<h3 class="webforms__subtitle">Delete this form</h3>
+						<p class="webforms__muted">It goes with its submissions; pages showing it show nothing.</p>
+						<input type="hidden" name="action" value="delete-form" />
+						<input type="hidden" name="form" value={form.id} />
+						<input type="hidden" name="return" value={here} />
+						<label class="webforms__field webforms__field--narrow">
+							<span>Type <strong>{form.name}</strong> to confirm</span>
+							<input class="webforms__input" name="confirm" autocomplete="off" spellcheck="false" required />
+						</label>
+						<div><button type="submit" class="webforms__button webforms__button--danger">Delete form</button></div>
+					</form>
+				</section>
+			)}
+
+			{tab === 'submissions' && !submission && (
+				<section class="webforms__group" aria-label="Submissions">
+					<div class="webforms__row">
+						<nav class="webforms__filter" aria-label="Show">
+							{(['ok', 'spam', 'all'] as const).map((s) => (
+								<a class:list={['webforms__tab', { active: s === show }]} href={formUrl(form.id, 'submissions', s === 'ok' ? '' : `&show=${s}`)} aria-current={s === show ? 'page' : undefined} data-webforms-show={s}>
+									{s === 'ok' ? 'Messages' : s === 'spam' ? 'Spam' : 'All'}
+								</a>
+							))}
+						</nav>
+						<span class="webforms__spacer" />
+						<a class="webforms__button" href={`/_webforms/export?form=${form.id}${show === 'ok' ? '' : '&spam'}`} data-webforms-export>Export CSV</a>
+					</div>
+					{shown.length === 0 ? (
+						<p class="webforms__muted" data-webforms-empty>Nothing here.</p>
+					) : (
+						<form method="post" action={ROUTE} data-webforms-bulk>
+							<input type="hidden" name="return" value={back} />
+							<table class="webforms__table">
+								<thead>
+									<tr>
+										{canEdit && <th scope="col"><span class="webforms__sr">Select</span></th>}
+										<th scope="col">Received</th><th scope="col">Message</th><th scope="col">Status</th>
+									</tr>
+								</thead>
+								<tbody>
+									{shown.map((s) => (
+										<tr data-webforms-submission={s.id}>
+											{canEdit && <td><input type="checkbox" name="ids" value={s.id} aria-label={`Select the submission from ${when(s.createdAt)}`} /></td>}
+											<td><a href={formUrl(form.id, 'submissions', `&submission=${encodeURIComponent(s.id)}`)}>{when(s.createdAt)}</a></td>
+											<td>{summary(s.values) || '—'}</td>
+											<td>{s.spam.length ? `Spam: ${s.spam.map((r) => SPAM[r] ?? r).join(', ')}` : MAIL[s.mail]}</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+							{canEdit && (
+								<div class="webforms__row">
+									<span class="webforms__muted">Selected:</span>
+									{show !== 'spam' && <button type="submit" name="action" value="mark-spam" class="webforms__button">Mark as spam</button>}
+									{show !== 'ok' && <button type="submit" name="action" value="mark-ok" class="webforms__button">Not spam</button>}
+									<button type="submit" name="action" value="delete-submissions" class="webforms__button webforms__button--danger">Delete</button>
+								</div>
+							)}
+						</form>
+					)}
+				</section>
+			)}
+
+			{tab === 'submissions' && submission && (
+				<section class="webforms__group" aria-labelledby="wf-one" data-webforms-detail={submission.id}>
+					<p><a href={formUrl(form.id, 'submissions')}>← All submissions</a></p>
+					<h3 class="webforms__subtitle" id="wf-one">Received {when(submission.createdAt)}</h3>
+					<p class="webforms__muted">
+						{submission.spam.length ? `Spam: ${submission.spam.map((r) => SPAM[r] ?? r).join(', ')}` : MAIL[submission.mail]}
+						{submission.page ? ` · from ${submission.page}` : ''}
+					</p>
+					<dl class="webforms__values">
+						{form.fields.filter((f) => f.type !== 'markup').map((field) => (
+							<div>
+								<dt>{field.label}</dt>
+								<dd>{valueText(field, submission.values[field.id]) || '—'}</dd>
+							</div>
+						))}
+					</dl>
+					{submission.replyTo && (
+						<p><a class="webforms__button" href={`mailto:${submission.replyTo}`}>Reply to {submission.replyTo}</a></p>
+					)}
+				</section>
+			)}
+		</>
+	)}
+</div>
+
+<style>
+	.webforms { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; color: var(--text-normal, inherit); }
+	.webforms__group { display: flex; flex-direction: column; gap: 0.85rem; padding: 1rem; background: var(--background-step-1); border: 1px solid var(--border); border-radius: var(--radius-md, 0.5rem); }
+	.webforms__title { margin: 0; font-size: 1.125rem; }
+	.webforms__title--big { font-size: 1.375rem; }
+	.webforms__subtitle { margin: 0; font-size: 1rem; }
+	.webforms__head { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+	.webforms__muted { margin: 0; color: var(--text-muted, inherit); font-size: 0.875rem; line-height: 1.5; }
+	.webforms__notice { margin: 0; padding: 0.6rem 0.8rem; background: var(--background-step-1); border: 1px solid var(--border); border-radius: var(--radius-md, 0.5rem); }
+	.webforms__notice--error { border-left: 4px solid var(--danger-base, hsl(339 80% 45%)); }
+	.webforms__cards { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); margin: 0; padding: 0; list-style: none; }
+	.webforms__card { display: flex; flex-direction: column; gap: 0.25rem; padding: 1rem; color: inherit; text-decoration: none; background: var(--background-base); border: 1px solid var(--border); border-radius: var(--radius-md, 0.5rem); }
+	.webforms__card:hover { border-color: var(--primary-base); }
+	.webforms__card-name { font-weight: 600; font-size: 1rem; }
+	.webforms__tabs, .webforms__filter { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+	.webforms__tab { padding: 0.4rem 0.8rem; color: inherit; text-decoration: none; border: 1px solid var(--border); border-radius: calc(var(--radius-md, 0.5rem) - 0.125rem); font-size: 0.875rem; }
+	.webforms__tab.active { color: var(--text-inverted, #fff); background: var(--primary-base); border-color: var(--primary-base); }
+	.webforms__stack { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; }
+	.webforms__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; }
+	.webforms__spacer { flex: 1; }
+	.webforms__field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; }
+	.webforms__field--narrow { max-width: 24rem; }
+	.webforms__field--wide { flex: 1 1 18rem; }
+	.webforms__input { padding: 0.45rem 0.6rem; font: inherit; color: inherit; background: var(--background-base); border: 1px solid var(--border); border-radius: calc(var(--radius-md, 0.5rem) - 0.125rem); }
+	.webforms__check { display: flex; gap: 0.5rem; align-items: center; font-size: 0.875rem; }
+	.webforms__button { display: inline-flex; align-items: center; padding: 0.35rem 0.75rem; font: inherit; font-size: 0.8125rem; color: inherit; text-decoration: none; background: var(--background-base); border: 1px solid var(--border); border-radius: calc(var(--radius-md, 0.5rem) - 0.125rem); cursor: pointer; }
+	.webforms__button:hover:not(:disabled) { border-color: var(--primary-base); }
+	.webforms__button:disabled { opacity: 0.55; cursor: default; }
+	.webforms__button--primary { color: var(--text-inverted, #fff); background: var(--primary-base); border-color: var(--primary-base); }
+	.webforms__button--danger { color: #fff; background: var(--danger-base, hsl(339 80% 45%)); border-color: var(--danger-base, hsl(339 80% 45%)); }
+	.webforms__button:focus-visible, .webforms__input:focus-visible, .webforms__tab:focus-visible, .webforms__check input:focus-visible { outline: 2px solid var(--primary-base); outline-offset: 2px; }
+	.webforms__fields { display: flex; flex-direction: column; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+	.webforms__fieldrow { padding: 0.6rem 0.75rem; background: var(--background-base); border: 1px solid var(--border); border-radius: calc(var(--radius-md, 0.5rem) - 0.125rem); }
+	.webforms__fieldhead { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+	.webforms__fieldname { font-weight: 600; }
+	.webforms__badge { padding: 0 0.45rem; font-size: 0.75rem; line-height: 1.4rem; border: 1px solid var(--border); border-radius: 999px; }
+	.webforms__edit summary { cursor: pointer; font-size: 0.875rem; margin-top: 0.4rem; width: fit-content; }
+	.webforms__edit[open] summary { margin-bottom: 0.5rem; }
+	.webforms__add, .webforms__danger { padding-top: 0.75rem; border-top: 1px solid var(--border); }
+	.webforms__table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+	.webforms__table th, .webforms__table td { padding: 0.45rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+	.webforms__table a { color: inherit; }
+	.webforms__values { display: flex; flex-direction: column; gap: 0.6rem; margin: 0; }
+	.webforms__values dt { font-weight: 600; font-size: 0.875rem; }
+	.webforms__values dd { margin: 0.1rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+	.webforms code { font-size: 0.8125rem; }
+	.webforms__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+</style>
+
+<script>
+	// "Add a field": show only the inputs that apply to the chosen type (all stay visible without JavaScript).
+	for (const form of document.querySelectorAll<HTMLFormElement>('[data-webforms-add-field]')) {
+		const type = form.querySelector<HTMLSelectElement>('[data-webforms-type]');
+		const sync = () => {
+			for (const el of form.querySelectorAll<HTMLElement>('[data-for-types]')) {
+				el.hidden = !(el.dataset.forTypes ?? '').split(' ').includes(type?.value ?? '');
+			}
+		};
+		type?.addEventListener('change', sync);
+		sync();
+	}
+</script>

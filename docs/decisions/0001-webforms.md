@@ -1,7 +1,6 @@
 # 0001. Webforms: forms built in the dashboard, submissions stored and emailed, spam stopped in layers
 
-- Status: Proposed (design for review, 2026-10-19). Decisions marked *(user)* were made by the user;
-  marked **(proposed)**: defaults to confirm.
+- Status: Accepted (2026-10-19; the user confirmed the proposed defaults and chose our own proof of work).
 - Date: 2026-10-19
 
 ## Context
@@ -20,12 +19,12 @@ Google (no reCAPTCHA) *(user)*.
    `<Webform form="…" />` (Astro). Tapestry sites also get a Webform component from a separate entry
    (`@nascencestudio/webforms/tapestry`; Tapestry is an optional peer). IP checks come from
    `@nascencestudio/ipguard` when installed (its ADR 0001).
-2. **Dashboard → Webforms** (admins build forms; editors view submissions **(proposed)**). Fields in the
-   first version **(proposed)**: short text, email, phone, long text, dropdown, radio buttons, checkboxes,
+2. **Dashboard → Webforms** (admins build forms; editors view submissions). Fields in the
+   first version: short text, email, phone, long text, dropdown, radio buttons, checkboxes,
    a single checkbox (e.g. consent), and a text block (help or a heading). Each field: label, help,
    required, maximum length. Per form: recipients (validated addresses, up to 10), email subject,
-   thank-you message or a page to go to, whether to keep submissions, how long (default 90 days
-   **(proposed)**). A **Contact** form is created on first use, like Tapestry Menus' Main navigation.
+   thank-you message or a page to go to, whether to keep submissions, how long (default 90 days).
+   A **Contact** form is created on first use, like Tapestry Menus' Main navigation.
    Later: conditional fields, several steps. File uploads are left out of the first version (the
    riskiest part).
 3. **A submission**: `POST /_webforms/submit` (same origin, size-limited) → validate against the form's
@@ -39,7 +38,7 @@ Google (no reCAPTCHA) *(user)*.
    3. **Proof of work**: before sending, the browser solves a small puzzle (about a second, in a Web
       Worker, with Web Crypto's SHA-256): the server issues a signed, expiring, **single-use** challenge
       and checks the answer. It makes bulk spam expensive. Our own implementation (about a hundred lines a
-      side, nothing added to the supply chain) **(proposed)**; ALTCHA's MIT library is the alternative.
+      side, nothing added to the supply chain) *(user)*; ALTCHA's library was the alternative.
    4. **IP Guard** (when installed): lists, rate limit, AbuseIPDB (its ADR 0001).
    5. **Content limits**: e.g. too many links in a message.
    Outcomes: **accept**; **spam** (stored and marked, not emailed, reviewable); **refuse** (IP Guard's

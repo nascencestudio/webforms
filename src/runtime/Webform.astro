@@ -1,0 +1,239 @@
+---
+/**
+ * `@nascencestudio/webforms/Webform.astro`: a form built in Dashboard → Webforms (ADR 0001 §1, §4).
+ * Server-rendered with labels, help and error slots wired for screen readers; a hidden honeypot field
+ * and a signed form token; a small script solves the proof of work in a Web Worker (started when the
+ * visitor begins filling the form in) and sends the form, showing errors by field and the thank-you
+ * message. Without JavaScript the form still posts (and the submission is kept as spam). Renders nothing
+ * when the form doesn't exist (in Tapestry's canvas it says so).
+ *
+ * @example <Webform form="wf_…" />
+ */
+/// <reference path="../virtual.d.ts" />
+import type { Field } from '../forms.js';
+import { formToken } from '../protect.js';
+import { webformsKey } from './secret.js';
+import { loadForm } from './store.js';
+
+interface Props {
+	/** The form's id (`wf_…`), from Dashboard → Webforms. */
+	form: string;
+	class?: string;
+}
+
+const { form: formId, class: className } = Astro.props;
+const form = await loadForm(formId);
+const canvas = Boolean((Astro.locals as Record<symbol, unknown>)[Symbol.for('tapestry.canvas')]);
+const status = Astro.url.searchParams.get('webform') === form?.id ? Astro.url.searchParams.get('webform-status') : null;
+const token = form ? formToken(webformsKey(), form.id, Date.now()) : '';
+const page = Astro.url.pathname;
+const slug =
+	(form?.name ?? '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-|-$/g, '') || 'form';
+const base = `webform-${form?.id ?? 'x'}`;
+const ids = (field: Field) => ({
+	input: `${base}-${field.id}`,
+	help: `${base}-${field.id}-help`,
+	error: `${base}-${field.id}-error`,
+});
+const describedBy = (field: Field) => [field.help ? ids(field).help : '', ids(field).error].filter(Boolean).join(' ');
+---
+
+{
+	!form ? (
+		canvas && (
+			<p class="webform-placeholder" style="margin:0;padding:0.75rem 1rem;border:1px dashed currentColor;font:inherit;font-size:0.875rem">
+				Webform: {formId ? 'this form no longer exists.' : 'choose a form in this block’s settings.'}
+			</p>
+		)
+	) : status === 'sent' ? (
+		<div class:list={['webform', `webform--${slug}`, className]} id={base}>
+			<p class="webform__thanks" role="status" data-webform-thanks>{form.settings.thankYou}</p>
+		</div>
+	) : (
+		<form
+			class:list={['webform', `webform--${slug}`, className]}
+			id={base}
+			method="post"
+			action="/_webforms/submit"
+			novalidate
+			data-webform={form.id}
+			data-webform-thanks-text={form.settings.thankYou}
+		>
+			{status && (
+				<p class="webform__status webform__status--error" role="alert">
+					{status === 'refused'
+						? 'Your submission could not be processed. Please contact us directly if you believe this is an error.'
+						: 'Your submission could not be sent. Please check the form and try again.'}
+				</p>
+			)}
+			<input type="hidden" name="_form" value={form.id} />
+			<input type="hidden" name="_token" value={token} />
+			<input type="hidden" name="_page" value={page} />
+			<input type="hidden" name="_pow" value="" />
+			<input type="hidden" name="_nonce" value="" />
+			{/* People never see this field; bots fill it in. */}
+			<div class="webform__hp" aria-hidden="true">
+				<label for={`${base}-hp`}>Website (leave empty)</label>
+				<input id={`${base}-hp`} type="text" name="website" tabindex="-1" autocomplete="off" />
+			</div>
+			{form.fields.map((field) => {
+				const id = ids(field);
+				if (field.type === 'markup') {
+					return (
+						<div class="webform__markup">
+							{field.help.split(/\n{2,}/).map((para) => <p>{para}</p>)}
+						</div>
+					);
+				}
+				const required = field.required ? <span class="webform__required" aria-hidden="true"> *</span> : null;
+				const help = field.help ? <p class="webform__help" id={id.help}>{field.help}</p> : null;
+				const error = <p class="webform__error" id={id.error} hidden data-webform-error={field.id} />;
+				if (field.type === 'radio' || field.type === 'checkboxes') {
+					return (
+						<fieldset class:list={['webform__field', `webform__field--${field.type}`]} aria-describedby={describedBy(field)} data-webform-field={field.id}>
+							<legend class="webform__label">{field.label}{required}</legend>
+							{help}
+							{field.options?.map((option, i) => (
+								<label class="webform__choice">
+									<input
+										type={field.type === 'radio' ? 'radio' : 'checkbox'}
+										name={field.id}
+										value={option}
+										id={i === 0 ? id.input : undefined}
+										required={field.type === 'radio' && field.required}
+									/>
+									<span>{option}</span>
+								</label>
+							))}
+							{error}
+						</fieldset>
+					);
+				}
+				if (field.type === 'checkbox') {
+					return (
+						<div class="webform__field webform__field--checkbox" data-webform-field={field.id}>
+							<label class="webform__choice">
+								<input type="checkbox" name={field.id} value="yes" id={id.input} required={field.required} aria-describedby={describedBy(field)} />
+								<span>{field.label}{required}</span>
+							</label>
+							{help}
+							{error}
+						</div>
+					);
+				}
+				return (
+					<div class:list={['webform__field', `webform__field--${field.type}`]} data-webform-field={field.id}>
+						<label class="webform__label" for={id.input}>{field.label}{required}</label>
+						{help}
+						{field.type === 'textarea' ? (
+							<textarea class="webform__input" id={id.input} name={field.id} rows="6" maxlength={field.maxLength} required={field.required} aria-describedby={describedBy(field)} />
+						) : field.type === 'select' ? (
+							<select class="webform__input" id={id.input} name={field.id} required={field.required} aria-describedby={describedBy(field)}>
+								<option value="">Choose…</option>
+								{field.options?.map((option) => <option value={option}>{option}</option>)}
+							</select>
+						) : (
+							<input
+								class="webform__input"
+								id={id.input}
+								name={field.id}
+								type={field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : 'text'}
+								autocomplete={field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : undefined}
+								maxlength={field.type === 'text' ? field.maxLength : field.type === 'email' ? 254 : 30}
+								required={field.required}
+								aria-describedby={describedBy(field)}
+							/>
+						)}
+						{error}
+					</div>
+				);
+			})}
+			<p class="webform__status" role="status" aria-live="polite" data-webform-status />
+			<button type="submit" class="webform__submit" data-webform-submit>Send</button>
+		</form>
+	)
+}
+
+<style>
+	.webform {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		max-width: 40rem;
+	}
+	.webform__field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		min-width: 0;
+	}
+	.webform__label {
+		font-weight: 600;
+		padding: 0;
+	}
+	.webform__input {
+		font: inherit;
+		padding: 0.5rem 0.65rem;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	/* Radios and checkboxes: 20px boxes on rows at least 28px apart (WCAG 2.2 target size, 24px). */
+	.webform__choice {
+		display: flex;
+		gap: 0.6rem;
+		align-items: flex-start;
+		min-height: 1.75rem;
+		padding: 0.1rem 0;
+	}
+	.webform__choice input {
+		flex-shrink: 0;
+		width: 1.25rem;
+		height: 1.25rem;
+		margin: 0.1rem 0 0;
+	}
+	.webform__help,
+	.webform__status {
+		margin: 0;
+		font-size: 0.9em;
+	}
+	.webform__status:empty {
+		display: none;
+	}
+	.webform__error {
+		margin: 0;
+		font-size: 0.9em;
+		font-weight: 600;
+	}
+	.webform__markup p {
+		margin: 0 0 0.5rem;
+	}
+	.webform__submit {
+		align-self: flex-start;
+		font: inherit;
+		padding: 0.55rem 1.25rem;
+		cursor: pointer;
+	}
+	.webform__submit[disabled] {
+		cursor: progress;
+	}
+	/* The honeypot: out of sight and out of reach (not display:none, which some bots skip). */
+	.webform__hp {
+		position: absolute;
+		left: -10000px;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+	}
+</style>
+
+<script>
+	import { setUpWebforms } from '../client/webform.js';
+
+	setUpWebforms();
+</script>

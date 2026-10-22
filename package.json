@@ -54,14 +54,14 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
+    "@biomejs/biome": "2.5.15",
     "@nascencestudio/ipguard": "file:../ipguard",
     "@nascencestudio/tapestry": "file:../tapestry",
     "@types/node": "22.20.4",
-    "astro": "7.3.5",
-    "studiocms": "0.6.1",
+    "astro": "7.4.1",
+    "studiocms": "0.7.0",
     "typescript": "6.0.3",
-    "vitest": "5.0.3"
+    "vitest": "5.0.5"
   },
   "engines": {
     "node": ">=22.12.0"

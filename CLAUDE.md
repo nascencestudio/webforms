@@ -46,7 +46,7 @@ src/
 ├── protect.ts        ← signingKey, formToken/checkFormToken (timing), issueChallenge/checkPow/solve (proof of work) (pure)
 ├── builder.ts        ← dashboard actions as data: newForm, applyAction (add/edit/move/remove field, rename, settings) (pure)
 ├── csv.ts            ← CSV export with formula neutralising (pure)
-├── tapestry.ts       ← `./tapestry`: webformComponents() (needs Tapestry ≥ 0.6, ADR 0042 select options)
+├── tapestry.ts       ← `./tapestry`: webformComponents() (needs Tapestry ≥ 0.7, the first release with ADR 0042 select options)
 ├── client/webform.ts ← browser: proof of work in a Worker, submit with fetch, errors by field, thank-you
 ├── thumbnails/       ← the Tapestry library thumbnail
 └── runtime/          ← store.ts (plugin data rows, lazy cleanup), secret.ts (key from CMS_ENCRYPTION_KEY),

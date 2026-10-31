@@ -18,10 +18,9 @@ whole project is the playground's; this repo has its own short one.
 
 ## Status
 
-- 0.1.0 built 2026-10-20, local only (not on GitHub or npm). Before pushing: the devDependencies
-  `@nascencestudio/ipguard` and `@nascencestudio/tapestry` are `file:../…` (CI can't resolve them): switch
-  them to the npm versions once IP Guard 0.1.0 and Tapestry 0.6.0 are released, `pnpm install`, commit.
-  Release order: Tapestry 0.6.0 and IP Guard first. The first npm release needs a one-time token.
+- **0.1.0 released 2026-10-31** (GitHub `nascencestudio/webforms`, npm with provenance), on Tapestry ≥ 0.7.0
+  and IP Guard 0.1.0 (dev dependencies from npm). Releases: bump `version`, PR, merge, GitHub release
+  `v<version>`, approve the staged version on npmjs.com (trusted publishing only; no tokens).
 
 ## Rules
 

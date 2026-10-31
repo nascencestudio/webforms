@@ -55,8 +55,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
-    "@nascencestudio/ipguard": "file:../ipguard",
-    "@nascencestudio/tapestry": "file:../tapestry",
+    "@nascencestudio/ipguard": "0.1.0",
+    "@nascencestudio/tapestry": "0.7.0",
     "@types/node": "22.20.4",
     "astro": "7.4.1",
     "studiocms": "0.7.0",

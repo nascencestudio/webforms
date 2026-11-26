@@ -5,6 +5,15 @@ in [tapestry-playground](https://github.com/nascencestudio/tapestry-playground/b
 
 ---
 
+## 2026-11-24: 0.1.1, dependency refresh
+
+- Dev dependencies: Tapestry 0.7.2, astro 7.4.13 (clears GHSA-mh32-jxcr-mh9f and GHSA-r3h5-4585-7x3w),
+  biome 2.6.8 (Markdown/YAML formatting kept off), vitest 5.1.1, @types/node 22.20.5; `.nvmrc` 22.23.4
+  (astro ≥ 7.4.7 needs it); actions/setup-node 7.1.0. IP Guard 0.1.0 is still current.
+- minimatch GHSA-g3hv-75wg-m249 fixed (`@ts-morph/common` 0.29.1 → minimatch 11.0.9), ignore removed;
+  braces still unpatched, re-check 2026-12-24. Dependabot ignores `@types/node` majors.
+- Held: TypeScript 7.
+
 ## 2026-10-20: StudioCMS mail patch
 
 **Request:** patches for Tapestry known issues #39 and #40, shipped with the plugin for sites to apply.
@@ -41,12 +50,3 @@ our own proof of work instead of ALTCHA. [ADR 0001](decisions/0001-webforms.md).
 
 ### Next
 - GitHub repo, npm versions of IP Guard and Tapestry in devDependencies, first release (after them).
-
-## 2026-11-24: 0.1.1, dependency refresh
-
-- Dev dependencies: Tapestry 0.7.2, astro 7.4.13 (clears GHSA-mh32-jxcr-mh9f and GHSA-r3h5-4585-7x3w),
-  biome 2.6.8 (Markdown/YAML formatting kept off), vitest 5.1.1, @types/node 22.20.5; `.nvmrc` 22.23.4
-  (astro ≥ 7.4.7 needs it); actions/setup-node 7.1.0. IP Guard 0.1.0 is still current.
-- minimatch GHSA-g3hv-75wg-m249 fixed (`@ts-morph/common` 0.29.1 → minimatch 11.0.9), ignore removed;
-  braces still unpatched, re-check 2026-12-24. Dependabot ignores `@types/node` majors.
-- Held: TypeScript 7.
